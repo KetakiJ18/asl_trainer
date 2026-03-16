@@ -16,10 +16,8 @@ hands = mp_hands.Hands(
 
 cap = cv2.VideoCapture(0)
 
-# Dataset file
 DATA_PATH = r"dataset\\asl_landmarks.csv"
 
-# Create file with header if not exists
 if not os.path.exists(DATA_PATH):
     with open(DATA_PATH, "w", newline="") as f:
         writer = csv.writer(f)
@@ -28,10 +26,8 @@ if not os.path.exists(DATA_PATH):
             header += [f"x{i}", f"y{i}", f"z{i}"]
         writer.writerow(header)
 
-# sample counter
 sample_count = {}
 
-# pinch exit variables
 pinch_start = None
 PINCH_THRESHOLD = 0.05
 HOLD_TIME = 2.5
@@ -59,14 +55,12 @@ while True:
 
             lm = hand.landmark
 
-            # -------- Extract landmarks --------
 
             row = []
 
             for point in lm:
                 row.extend([point.x, point.y, point.z])
 
-            # -------- Pinch Detection --------
 
             thumb = lm[4]
             index = lm[8]
@@ -97,7 +91,6 @@ while True:
             else:
                 pinch_start = None
 
-    # -------- Key press detection --------
 
     key = cv2.waitKey(1) & 0xFF
 
@@ -124,7 +117,6 @@ while True:
 
             print(f"Saved {label_to_save} sample {sample_count[label_to_save]}")
 
-    # -------- Display counters --------
 
     y = 40
     for letter in sorted(sample_count.keys()):

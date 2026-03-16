@@ -32,14 +32,23 @@ while True:
 
             lm = hand.landmark
 
-            data = []
+            coords = []
 
             for point in lm:
-                data.append(point.x)
-                data.append(point.y)
-                data.append(point.z)
+                coords.append([point.x, point.y, point.z])
 
-            data = np.array(data).reshape(1, -1)
+            coords = np.array(coords)
+
+            wrist = coords[0]
+
+            coords = coords - wrist
+
+            max_value = np.max(np.abs(coords))
+
+            if max_value != 0:
+                coords = coords / max_value
+
+            data = coords.flatten().reshape(1, -1)
 
             prediction = model.predict(data)[0]
 
