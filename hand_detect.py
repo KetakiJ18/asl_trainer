@@ -1,121 +1,127 @@
 import cv2
 import mediapipe as mp
 import time
+import math
 
-prev_gesture = None
-gesture_start = 0
-confirmed_action = ""
-
-# Initialize MediaPipe
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
 
 hands = mp_hands.Hands(
-    static_image_mode=False,
-    max_num_hands=2,
+    max_num_hands=1,
     min_detection_confidence=0.7,
     min_tracking_confidence=0.7
 )
 
 cap = cv2.VideoCapture(0)
 
-cap = cv2.VideoCapture(0)
+pinch_start = None
+PINCH_THRESHOLD = 0.05
+HOLD_TIME = 2.5
 
-if not cap.isOpened():
-    print("❌ Cannot open webcam")
-    exit()
-else:
-    print("✅ Webcam opened")
+
+def distance(p1, p2):
+    return math.sqrt((p1.x-p2.x)**2 + (p1.y-p2.y)**2)
+
+def calculate_angle(a, b, c):
+    """
+    Returns the angle ABC (in degrees)
+    """
+    ba = (a.x - b.x, a.y - b.y)
+    bc = (c.x - b.x, c.y - b.y)
+
+    dot = ba[0]*bc[0] + ba[1]*bc[1]
+
+    mag_ba = math.sqrt(ba[0]**2 + ba[1]**2)
+    mag_bc = math.sqrt(bc[0]**2 + bc[1]**2)
+
+    angle = math.degrees(math.acos(max(-1,min(1, dot/(mag_ba*mag_bc)))))
+
+    return angle
+
 
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
 
-    frame = cv2.flip(frame, 1)
-    h, w, c = frame.shape
+    success, frame = cap.read()
+    frame = cv2.flip(frame,1)
 
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = hands.process(rgb)
 
     if results.multi_hand_landmarks:
 
-        for hand_index, hand_landmarks in enumerate(results.multi_hand_landmarks):
+        for hand in results.multi_hand_landmarks:
 
-            hand_label = results.multi_handedness[hand_index].classification[0].label
+            mp_draw.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
 
-            lm_list = []
+            lm = hand.landmark
 
-            for id, lm in enumerate(hand_landmarks.landmark):
-                cx, cy = int(lm.x * w), int(lm.y * h)
-                lm_list.append((cx, cy))
-
-            if len(lm_list) != 21:
-                continue
-
-            mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+            wrist = lm[0]
 
             fingers = []
 
-            # Thumb detection
-            if hand_label == "Right":
-                fingers.append(1 if lm_list[4][0] > lm_list[3][0] else 0)
+            thumb_angle = calculate_angle(lm[2], lm[3], lm[4])
+
+            if thumb_angle > 160:
+                fingers.append(1)
             else:
-                fingers.append(1 if lm_list[4][0] < lm_list[3][0] else 0)
+                fingers.append(0)
 
-            # Other fingers
-            tips = [8, 12, 16, 20]
-            pips = [6, 10, 14, 18]
+            # finger tips
+            tips = [8,12,16,20]
+            mids = [6,10,14,18]
 
-            for tip, pip in zip(tips, pips):
-                fingers.append(1 if lm_list[tip][1] < lm_list[pip][1] else 0)
+            for tip, mid in zip(tips, mids):
 
-            total_fingers = fingers.count(1)
+                tip_dist = distance(lm[tip], wrist)
+                mid_dist = distance(lm[mid], wrist)
 
-            # -------- Gesture Mapping --------
-            action = ""
+                if tip_dist > mid_dist:
+                    fingers.append(1)
+                else:
+                    fingers.append(0)
 
-            if total_fingers == 1:
-                action = "STOP"
-            elif total_fingers == 2:
-                action = "START"
-            elif total_fingers == 3:
-                action = "NEXT"
-            elif total_fingers == 4:
-                action = "PREVIOUS"
-            elif total_fingers == 5:
-                action = "WAIT"
-            elif total_fingers == 0:
-                action = "HELLO"
+            cv2.putText(frame,
+                        f"Fingers: {fingers}",
+                        (20,50),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.9,
+                        (0,255,0),
+                        2)
 
-            # -------- Gesture Stability Logic --------
-            if total_fingers != prev_gesture:
-                prev_gesture = total_fingers
-                gesture_start = time.time()
+            # ----------------
+            # Pinch Detection
+            # ----------------
 
-            gesture_duration = time.time() - gesture_start
+            thumb = lm[4]
+            index = lm[20]
 
-            if gesture_duration > 0.7:
-                confirmed_action = action
+            pinch_dist = distance(thumb, index)
 
-            # Wrist position
-            cx, cy = lm_list[0]
+            if pinch_dist < PINCH_THRESHOLD:
 
-            # Display info
-            cv2.putText(frame, f'Fingers: {total_fingers}', (cx, cy + 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+                if pinch_start is None:
+                    pinch_start = time.time()
 
-            cv2.putText(frame, f'Action: {action}', (cx, cy + 80),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
+                elapsed = time.time() - pinch_start
 
-            cv2.putText(frame, f'Triggered: {confirmed_action}', (cx, cy + 120),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,255), 2)
+                cv2.putText(frame,
+                            f"Pinch exit: {elapsed:.1f}s",
+                            (20,90),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.8,
+                            (0,0,255),
+                            2)
 
-            # Debug finger states
-            cv2.putText(frame, str(fingers), (10,70),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,0), 2)
+                if elapsed > HOLD_TIME:
+                    print("Pinch exit")
+                    cap.release()
+                    cv2.destroyAllWindows()
+                    exit()
 
-    cv2.imshow("Hand Action Detection", frame)
+            else:
+                pinch_start = None
+
+    cv2.imshow("ASL Detection", frame)
 
     if cv2.waitKey(1) & 0xFF == 27:
         break
