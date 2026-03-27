@@ -3,7 +3,7 @@ import time
 current_letter = None
 letter_start = None
 
-LETTER_HOLD_TIME = 2.5
+LETTER_HOLD_TIME = 3
 
 word = ""
 cursor_pos = 0
